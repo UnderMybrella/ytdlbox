@@ -5,27 +5,27 @@ import inet.ipaddr.IPAddressString
 import io.ktor.application.*
 import io.ktor.features.*
 import io.ktor.http.*
+import io.ktor.http.cio.websocket.*
 import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.serialization.*
 import io.ktor.util.*
 import io.ktor.util.pipeline.*
+import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.future.await
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.SerialFormat
+import kotlinx.serialization.cbor.Cbor
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.protobuf.ProtoBuf
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
-import java.awt.MediaTracker.COMPLETE
 import java.io.File
+import java.time.*
 import java.util.*
-import kotlin.collections.HashMap
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -42,9 +42,6 @@ class TradeOfferImpl<I, O>(val incoming: CompletableDeferred<I>, val outgoing: D
         return outgoing.await()
     }
 }
-
-@Serializable
-data class DownloadRequest(val url: String, val args: List<String> = emptyList())
 
 inline fun <T> CoroutineScope.launchLazyWithParam(
     context: CoroutineContext = EmptyCoroutineContext,
@@ -124,7 +121,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
             }
         }
 
-    private val proxyListener = if (applicationConfig
+    val proxyListener = if (applicationConfig
             .propertyOrNull("listen_for_proxy")
             ?.getString()
             ?.toBooleanStrictOrNull() == true
@@ -142,17 +139,17 @@ class YtdlBox(val application: Application) : CoroutineScope {
             ?.getString() ?: "holding"
     ).also(File::mkdirs)
 
-    private fun logFileForTask(taskID: String): File =
+    fun logFileForTask(taskID: String): File =
         File(logsDir, "$taskID.log")
 
-    private fun outputTemplateForTask(taskID: String): String =
+    fun outputTemplateForTask(taskID: String): String =
         "${holdingDir.absolutePath}/${taskID}.%(ext)s"
 
-    private fun outputFileForTask(taskID: String): File? =
+    fun outputFileForTask(taskID: String): File? =
         holdingDir.listFiles()
             ?.firstOrNull { file -> file.nameWithoutExtension == taskID }
 
-    private fun beginDownload(url: String, options: List<String>): OngoingProcess =
+    fun beginDownload(url: String, options: List<String>): OngoingProcess =
         OngoingProcess(generateTaskID(), url, options) { ongoing ->
             ongoing.status = ProcessStatus.INITIALISING
 
@@ -207,7 +204,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
 
                     successful = ongoing.process.exitValue() <= 0
                     if (successful) break
-                    if (ongoing.onFailure?.invoke(logFile) == false) break
+                    if (ongoing.onFailure?.invoke(ongoing, logFile) == false) break
                 } finally {
                     if (proxy != null) {
                         var proxyError: Boolean = false
@@ -234,8 +231,8 @@ class YtdlBox(val application: Application) : CoroutineScope {
             val outputFile = outputFileForTask(ongoing.taskID)
 
             try {
-                if (successful && outputFile?.exists() == true) ongoing.onSuccess?.invoke(logFile, outputFile)
-                ongoing.onComplete?.invoke(logFile, outputFile)
+                if (successful && outputFile?.exists() == true) ongoing.onSuccess?.invoke(ongoing, logFile, outputFile)
+                ongoing.onComplete?.invoke(ongoing, logFile, outputFile)
 
                 delay(120_000)
 
@@ -274,67 +271,84 @@ class YtdlBox(val application: Application) : CoroutineScope {
                 get("/", "/info") {
                     val taskID = call.parameters.getOrFail("task_id")
 
-                    val ongoing = ongoingTasks[taskID]
-                                  ?: return@get call.respondJsonObject(status = HttpStatusCode.NotFound) {
-                                      put("error", "No task with ID $taskID")
-                                  }
+                    val ongoing = ongoingTasks[taskID] ?: return@get call.respond(
+                        HttpStatusCode.NotFound, WebError(taskID, "No task with ID $taskID")
+                    )
 
-                    call.respondJsonObject {
-                        put("task_id", ongoing.taskID)
-                        put("url", ongoing.url)
-                        put("args", JsonArray(ongoing.parameters.map(::JsonPrimitive)))
-                        put("command_line", JsonArray(ongoing.commandLine.map(::JsonPrimitive)))
-                        put("logs_location", "/$taskID/logs")
-                        put("status", ongoing.status.name)
+                    val logTail = logFileForTask(taskID)
+                        .takeIf(File::exists)
+                        ?.useLines { it.lastOrNull() }
 
-                        val logFile = File(logsDir, "${ongoing.taskID}.log")
-                        if (logFile.exists()) {
-                            logFile.useLines { seq ->
-                                val lines = seq.mapTo(ArrayList(), ::JsonPrimitive)
-                                put("log_tail", lines.lastOrNull() ?: JsonNull)
-                                put("log", JsonArray(lines))
-                            }
-                        }
-
+                    call.respond(
                         when (ongoing.status) {
-                            ProcessStatus.INITIALISING -> {}
                             ProcessStatus.RUNNING -> {
-                                putJsonObject("process") {
-                                    try {
-                                        val process = ongoing.process.toHandle()
-                                        val info = process.info()
-                                        put("pid", process.pid())
-                                        put("command", info.command().orElse(null))
-                                        put("arguments", JsonArray(info.arguments().orElse(null)?.map(::JsonPrimitive) ?: emptyList()))
-                                        put("command_line", info.commandLine().orElse(null))
-                                        put("start_instant", info.startInstant().orElse(null).toString())
-                                    } catch (uoe: UnsupportedOperationException) {
-                                        put("error", uoe.stackTraceToString())
-                                    }
+                                var processInfo: TaskInfo.Running.ProcessHandleInfo? = null
+                                var processError: String? = null
+
+                                try {
+                                    val process = ongoing.process.toHandle()
+                                    val info = process.info()
+
+                                    processInfo = TaskInfo.Running.ProcessHandleInfo(
+                                        pid = process.pid(),
+                                        command = info.command().orElse(null),
+                                        arguments = info.arguments()?.orElse(null)?.toList() ?: emptyList(),
+                                        commandLine = info.commandLine().orElse(null),
+                                        startTime = info.startInstant().orElse(null)?.toString()
+                                    )
+                                } catch (uoe: UnsupportedOperationException) {
+                                    processInfo = null
+                                    processError = uoe.stackTraceToString()
                                 }
+
+                                TaskInfo.Running(
+                                    ongoing.taskID,
+                                    ongoing.url,
+                                    ongoing.parameters,
+                                    ongoing.commandLine,
+                                    "/${ongoing.taskID}/logs",
+                                    ongoing.status,
+                                    logTail,
+                                    processInfo,
+                                    processError
+                                )
                             }
-                            ProcessStatus.COMPLETE_SUCCESS -> put("data", "/$taskID/download")
+                            ProcessStatus.COMPLETE_SUCCESS ->
+                                TaskInfo.Successful(
+                                    ongoing.taskID,
+                                    ongoing.url,
+                                    ongoing.parameters,
+                                    ongoing.commandLine,
+                                    "/${ongoing.taskID}/logs",
+                                    ongoing.status,
+                                    logTail,
+                                    "/${ongoing.taskID}/download"
+                                )
+
+                            else -> TaskInfo.Generic(
+                                ongoing.taskID,
+                                ongoing.url,
+                                ongoing.parameters,
+                                ongoing.commandLine,
+                                "/${ongoing.taskID}/logs",
+                                ongoing.status,
+                                logTail
+                            )
                         }
-                    }
+                    )
                 }
                 get("/log", "/logs") {
                     val taskID = call.parameters.getOrFail("task_id")
 
                     val logFile = logFileForTask(taskID)
                     if (logFile.exists()) {
-                        val json = call.request.queryParameters["json"] != null ||
-                                   call.request.queryParameters["format"] == "json" ||
-                                   call.request.acceptItems().firstOrNull()?.value?.contains("application/json") == true
+//                        val json = call.request.queryParameters["json"] != null ||
+//                                   call.request.queryParameters["format"] == "json" ||
+//                                   call.request.acceptItems().firstOrNull()?.value?.contains("application/json") == true
 
-                        if (json) {
-                            logFile.useLines { seq ->
-                                call.respondText(JsonArray(seq.mapTo(ArrayList(), ::JsonPrimitive)).toString())
-                            }
-                        } else {
-                            logFile.useLines { seq ->
-                                call.respondText(seq.joinToString("\n"))
-                            }
-                        }
+                        call.respond(logFile.useLines { seq -> seq.toList() })
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, WebError(taskID, "No logs found for $taskID"))
                     }
                 }
                 get("/download") {
@@ -345,10 +359,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
                     if (outputFile?.exists() == true) {
                         call.respondFile(outputFile)
                     } else {
-                        call.respondJsonObject(status = HttpStatusCode.NotFound) {
-                            put("task", taskID)
-                            put("error", "No download found for $taskID")
-                        }
+                        call.respond(HttpStatusCode.NotFound, WebError(taskID, "No download found for $taskID"))
                     }
                 }
             }
@@ -356,25 +367,50 @@ class YtdlBox(val application: Application) : CoroutineScope {
             post("/download") { request: DownloadRequest ->
                 val existingID = incomingUrls[request.url]
                 if (existingID != null) {
-                    return@post call.respondJsonObject(status = HttpStatusCode.OK) {
-                        put("id", existingID)
-                        put("created", false)
-                        put("url", request.url)
-                        put("args", JsonArray(request.args.map(::JsonPrimitive)))
-                    }
+                    return@post call.respond(DownloadResponse(existingID, false, request.url, ongoingTasks[existingID]?.parameters ?: emptyList()))
                 } else {
-                    return@post call.respondJsonObject(status = HttpStatusCode.Created) {
-                        put("id", beginDownload(request.url, request.args).taskID)
-                        put("created", true)
-                        put("url", request.url)
-                        put("args", JsonArray(request.args.map(::JsonPrimitive)))
+                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(beginDownload(request.url, request.args).taskID, true, request.url, request.args))
+                }
+            }
+            webSocket("/connect") {
+                val acceptHeaderContent = call.request.header(HttpHeaders.Accept)
+                val acceptHeader = try {
+                    parseHeaderValue(acceptHeaderContent)
+                        .map { ContentTypeWithQuality(ContentType.parse(it.value), it.quality) }
+                        .distinct()
+                        .sortedByQuality()
+                } catch (parseFailure: BadContentTypeFormatException) {
+                    throw BadRequestException(
+                        "Illegal Accept header format: $acceptHeaderContent",
+                        parseFailure
+                    )
+                }
+
+                var format: SerialFormat? = null
+
+                for ((contentType) in acceptHeader) {
+                    when {
+                        ContentType.Application.Json.match(contentType) -> {
+                            format = Json.Default
+                            break
+                        }
+                        ContentType.Application.Cbor.match(contentType) -> {
+                            format = Cbor.Default
+                            break
+                        }
+                        ContentType.Application.ProtoBuf.match(contentType) -> {
+                            format = ProtoBuf.Default
+                            break
+                        }
                     }
                 }
+
+                WebsocketControl(this@YtdlBox, this, format ?: Json)
             }
 
             if (proxyListener != null) {
                 route("/proxy") {
-                    post("/add") { proxy: DLProxy ->
+                    post("/add") { proxy: DownloadProxy ->
                         proxyListener.addProxy(proxy)
                         call.respond(HttpStatusCode.Created)
                     }
@@ -389,7 +425,20 @@ class YtdlBox(val application: Application) : CoroutineScope {
     init {
         application.install(ContentNegotiation) {
             json()
+            serialization(ContentType.Application.Cbor, Cbor.Default)
+            serialization(ContentType.Application.ProtoBuf, ProtoBuf.Default)
         }
+        application.install(WebSockets) {
+            pingPeriod = Duration.ofSeconds(15)
+            timeout = Duration.ofSeconds(15)
+            maxFrameSize = Long.MAX_VALUE
+            masking = false
+        }
+//        application.install(CORS) {
+//            methods.addAll(HttpMethod.DefaultMethods)
+//            allowCredentials = true
+//            anyHost() // @TODO: Don't do this in production if possible. Try to limit it.
+//        }
         application.routing(this::setupRouting)
 
         logsDir.deleteRecursively()

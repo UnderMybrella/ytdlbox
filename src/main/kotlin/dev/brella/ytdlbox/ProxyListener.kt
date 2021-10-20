@@ -9,26 +9,22 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
 sealed class ProxyAction<T>(val deferred: CompletableDeferred<T> = CompletableDeferred()) : CompletableDeferred<T> by deferred {
-    class AddProxy(val proxy: DLProxy) : ProxyAction<Unit>()
-    class RemoveProxy(val address: String) : ProxyAction<DLProxy?>()
+    class AddProxy(val proxy: DownloadProxy) : ProxyAction<Unit>()
+    class RemoveProxy(val address: String) : ProxyAction<DownloadProxy?>()
 
-    class BorrowProxy : ProxyAction<DLProxy?>()
-    class ReturnProxy(val proxy: DLProxy, val hadError: Boolean) : ProxyAction<Unit>()
+    class BorrowProxy : ProxyAction<DownloadProxy?>()
+    class ReturnProxy(val proxy: DownloadProxy, val hadError: Boolean) : ProxyAction<Unit>()
 }
 
-@Serializable
-data class DLProxy(val address: String, val limit: Int, val errorLimit: Int = 3)
-
 class ProxyListener(val scope: CoroutineScope, val saveFile: File = File("proxies.json")) {
-    private val proxies: MutableMap<DLProxy, Int> = HashMap()
-    private val errors: MutableMap<DLProxy, Int> = HashMap()
+    private val proxies: MutableMap<DownloadProxy, Int> = HashMap()
+    private val errors: MutableMap<DownloadProxy, Int> = HashMap()
 
     private val channel = Channel<ProxyAction<*>>()
     private val listener = channel.consumeAsFlow()
@@ -48,7 +44,7 @@ class ProxyListener(val scope: CoroutineScope, val saveFile: File = File("proxie
                 is ProxyAction.BorrowProxy -> {
                     val entry = proxies.entries
                         .filter { (k, v) -> v < k.limit }
-                        .minByOrNull(Map.Entry<DLProxy, Int>::value)
+                        .minByOrNull(Map.Entry<DownloadProxy, Int>::value)
 
                     if (entry != null) proxies[entry.key] = entry.value
                     action.complete(entry?.key)
@@ -75,7 +71,7 @@ class ProxyListener(val scope: CoroutineScope, val saveFile: File = File("proxie
         }.launchIn(scope)
     private val saveJob = scope.launch { while (isActive) saveFile.writeText(Json.encodeToString(proxies.keys.toList())) }
 
-    suspend fun addProxy(proxy: DLProxy) =
+    suspend fun addProxy(proxy: DownloadProxy) =
         ProxyAction.AddProxy(proxy)
             .also { channel.send(it) }
             .await()
@@ -90,13 +86,13 @@ class ProxyListener(val scope: CoroutineScope, val saveFile: File = File("proxie
             .also { channel.send(it) }
             .await()
 
-    suspend fun returnProxy(proxy: DLProxy, hadError: Boolean) =
+    suspend fun returnProxy(proxy: DownloadProxy, hadError: Boolean) =
         ProxyAction.ReturnProxy(proxy, hadError)
             .also { channel.send(it) }
             .await()
 
     init {
         if (saveFile.exists())
-            Json.decodeFromString<List<DLProxy>>(saveFile.readText()).forEach { proxies[it] = 0 }
+            Json.decodeFromString<List<DownloadProxy>>(saveFile.readText()).forEach { proxies[it] = 0 }
     }
 }

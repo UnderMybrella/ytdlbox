@@ -21,13 +21,13 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
     }
 
     /** Invoked on success */
-    var onSuccess: (suspend (logFile: File, outputFile: File) -> Unit)? = null
+    var onSuccess: (suspend (process: OngoingProcess, logFile: File, outputFile: File) -> Unit)? = null
 
     /** Invoked on failure. Return true to try again */
-    var onFailure: (suspend (logFile: File) -> Boolean)? = null
+    var onFailure: (suspend (process: OngoingProcess, logFile: File) -> Boolean)? = null
 
     /** Invoked on completion */
-    var onComplete: (suspend (logFile: File, outputFile: File?) -> Unit)? = null
+    var onComplete: (suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit)? = null
 
     var commandLine: List<String> = emptyList()
     lateinit var process: Process

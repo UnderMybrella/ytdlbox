@@ -19,9 +19,17 @@ repositories {
 dependencies {
     val ktor_version = "1.6.4"
     val kotlinx_coroutines_version = "1.5.2"
+    val kotlinx_serialisation_version = "1.3.0"
+
+    implementation("io.ktor:ktor-server-core:$ktor_version")
+    implementation("io.ktor:ktor-websockets:$ktor_version")
 
     implementation("io.ktor:ktor-server-netty:$ktor_version")
     implementation("io.ktor:ktor-serialization:$ktor_version")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:$kotlinx_serialisation_version")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-cbor:$kotlinx_serialisation_version")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinx_coroutines_version")
     implementation("com.github.seancfoley:ipaddress:5.3.3")
 
