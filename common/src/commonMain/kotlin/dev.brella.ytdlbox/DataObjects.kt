@@ -1,7 +1,14 @@
 package dev.brella.ytdlbox
 
 import kotlinx.serialization.Serializable
-import java.time.Instant
+
+enum class ProcessStatus(val isComplete: Boolean) {
+    INITIALISING(false),
+    RUNNING(false),
+    COMPLETE_SUCCESS(true),
+    COMPLETE_FAILURE(true),
+    SHUTTING_DOWN(false);
+}
 
 @Serializable
 data class DownloadRequest(val url: String, val args: List<String> = emptyList())
@@ -74,41 +81,52 @@ data class WebError(val id: String, val errorMessage: String)
 
 @Serializable
 sealed class WebsocketRequest {
+    abstract val nonce: Long
+
     @Serializable
-    data class Download(val request: DownloadRequest, val listenFor: Boolean = true): WebsocketRequest()
+    data class Download(override val nonce: Long, val request: DownloadRequest, val listenFor: Boolean = true) : WebsocketRequest()
+
     @Serializable
-    data class AddProxyServer(val proxy: DownloadProxy): WebsocketRequest()
+    data class AddProxyServer(override val nonce: Long, val proxy: DownloadProxy) : WebsocketRequest()
+
     @Serializable
-    data class RemoveProxyServer(val address: String): WebsocketRequest()
+    data class RemoveProxyServer(override val nonce: Long, val address: String) : WebsocketRequest()
 }
 
 @Serializable
 sealed class WebsocketResponse {
-    @Serializable
-    data class Downloading(val taskID: String, val created: Boolean, val url: String, val args: List<String>): WebsocketResponse()
+    abstract val nonce: Long
 
     @Serializable
-    data class AddedProxyServer(val proxy: DownloadProxy): WebsocketResponse()
+    data class Downloading(override val nonce: Long, val taskID: String, val created: Boolean, val url: String, val args: List<String>) : WebsocketResponse()
 
     @Serializable
-    data class RemovedProxyServer(val proxy: DownloadProxy): WebsocketResponse()
+    data class AddedProxyServer(override val nonce: Long, val proxy: DownloadProxy) : WebsocketResponse()
+
+    @Serializable
+    data class RemovedProxyServer(override val nonce: Long, val proxy: DownloadProxy?) : WebsocketResponse()
+
+    @Serializable
+    data class NoProxyListener(override val nonce: Long) : WebsocketResponse()
 
     @Serializable
     data class DownloadFailure(
+        override val nonce: Long,
         val taskID: String,
         val url: String,
         val commandLine: List<String>,
         val logs: List<String>
-    ): WebsocketResponse()
+    ) : WebsocketResponse()
 
     @Suppress("ArrayInDataClass")
     @Serializable
     data class DownloadSuccess(
+        override val nonce: Long,
         val taskID: String,
         val url: String,
         val commandLine: List<String>,
-        val output: ByteArray,
+        val output: @Serializable(Base64ByteArraySerialiser::class) ByteArray,
         val mimeType: String?,
         val logs: List<String>
-    ): WebsocketResponse()
+    ) : WebsocketResponse()
 }

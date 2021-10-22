@@ -21,22 +21,15 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
     }
 
     /** Invoked on success */
-    var onSuccess: (suspend (process: OngoingProcess, logFile: File, outputFile: File) -> Unit)? = null
+    var onSuccess: MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File) -> Unit)> = ArrayList()
 
     /** Invoked on failure. Return true to try again */
-    var onFailure: (suspend (process: OngoingProcess, logFile: File) -> Boolean)? = null
+    var onFailure: MutableList<(suspend (process: OngoingProcess, logFile: File) -> Boolean)> = ArrayList()
 
     /** Invoked on completion */
-    var onComplete: (suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit)? = null
+    var onComplete: MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit)> = ArrayList()
 
     var commandLine: List<String> = emptyList()
     lateinit var process: Process
     var status: ProcessStatus = ProcessStatus.INITIALISING
-}
-
-enum class ProcessStatus {
-    INITIALISING,
-    RUNNING,
-    COMPLETE_SUCCESS,
-    COMPLETE_FAILURE;
 }

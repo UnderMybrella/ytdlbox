@@ -13,49 +13,24 @@ import io.ktor.serialization.*
 import io.ktor.util.*
 import io.ktor.util.pipeline.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.produce
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.SerialFormat
 import kotlinx.serialization.cbor.Cbor
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.put
 import kotlinx.serialization.protobuf.ProtoBuf
+import org.slf4j.event.Level
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.io.File
-import java.time.*
+import java.time.Duration
 import java.util.*
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.EmptyCoroutineContext
-
-fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
-
-fun interface TradeOffer<I, O> {
-    public suspend fun complete(input: I): O
-}
-
-class TradeOfferImpl<I, O>(val incoming: CompletableDeferred<I>, val outgoing: Deferred<O>) : TradeOffer<I, O> {
-    override suspend fun complete(input: I): O {
-        incoming.complete(input)
-        return outgoing.await()
-    }
-}
-
-inline fun <T> CoroutineScope.launchLazyWithParam(
-    context: CoroutineContext = EmptyCoroutineContext,
-    crossinline block: suspend CoroutineScope.(T) -> Unit
-): TradeOffer<T, Job> {
-    val incoming = CompletableDeferred<T>(context[Job])
-    val job = launch(context = context, start = CoroutineStart.LAZY) { block(incoming.await()) }
-
-    return TradeOffer {
-        incoming.complete(it)
-        job.start()
-        return@TradeOffer job
-    }
-}
 
 inline fun CoroutineScope.OngoingProcess(taskID: String, url: String, parameters: List<String>, crossinline block: suspend CoroutineScope.(OngoingProcess) -> Unit) =
     OngoingProcess.invoke(this, taskID, url, parameters, block)
@@ -63,8 +38,8 @@ inline fun CoroutineScope.OngoingProcess(taskID: String, url: String, parameters
 class YtdlBox(val application: Application) : CoroutineScope {
     override val coroutineContext: CoroutineContext = Dispatchers.IO + SupervisorJob()
 
-    private val ongoingTasks: MutableMap<String, OngoingProcess> = HashMap()
-    private val incomingUrls: MutableMap<String, String> = HashMap()
+    val ongoingTasks: MutableMap<String, OngoingProcess> = HashMap()
+    val incomingUrls: MutableMap<String, String> = HashMap()
 
     private inline fun generateTaskID(): String = UUID.randomUUID().toString()
 
@@ -160,6 +135,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
 
             for (i in 0 until 5) {
                 val proxy = proxyListener?.borrowProxy()
+
                 try {
                     val fullCommandLine = ArrayList<String>().apply {
                         add(ytdlProcess)
@@ -171,6 +147,8 @@ class YtdlBox(val application: Application) : CoroutineScope {
                             add(proxy.address)
                         } else if (sourceAddresses?.isClosedForReceive == false) {
                             val ip = sourceAddresses.receive()
+
+                            println("--Using $ip")
 
                             if (ip.isIPv6) add("--force-ipv6")
                             else if (ip.isIPv6) add("--force-ipv4")
@@ -204,7 +182,9 @@ class YtdlBox(val application: Application) : CoroutineScope {
 
                     successful = ongoing.process.exitValue() <= 0
                     if (successful) break
-                    if (ongoing.onFailure?.invoke(ongoing, logFile) == false) break
+                    if (!ongoing.onFailure.fold(true) { acc, func -> acc && func(ongoing, logFile) }) break
+                } catch (th: Throwable) {
+                    th.printStackTrace()
                 } finally {
                     if (proxy != null) {
                         var proxyError: Boolean = false
@@ -231,10 +211,14 @@ class YtdlBox(val application: Application) : CoroutineScope {
             val outputFile = outputFileForTask(ongoing.taskID)
 
             try {
-                if (successful && outputFile?.exists() == true) ongoing.onSuccess?.invoke(ongoing, logFile, outputFile)
-                ongoing.onComplete?.invoke(ongoing, logFile, outputFile)
+                if (successful && outputFile?.exists() == true) ongoing.onSuccess.forEach { it(ongoing, logFile, outputFile) }
+                ongoing.onComplete.forEach { it(ongoing, logFile, outputFile) }
 
                 delay(120_000)
+
+                ongoing.status = ProcessStatus.SHUTTING_DOWN
+
+                delay(60_000)
 
                 ongoingTasks.remove(ongoing.taskID)
                 incomingUrls.remove(ongoing.url)
@@ -365,14 +349,15 @@ class YtdlBox(val application: Application) : CoroutineScope {
             }
 
             post("/download") { request: DownloadRequest ->
-                val existingID = incomingUrls[request.url]
-                if (existingID != null) {
-                    return@post call.respond(DownloadResponse(existingID, false, request.url, ongoingTasks[existingID]?.parameters ?: emptyList()))
+                val existingTask = incomingUrls[request.url]?.let(ongoingTasks::get)
+                if (existingTask != null) {
+                    return@post call.respond(DownloadResponse(existingTask.taskID, false, existingTask.url, existingTask.parameters))
                 } else {
                     return@post call.respond(HttpStatusCode.Created, DownloadResponse(beginDownload(request.url, request.args).taskID, true, request.url, request.args))
                 }
             }
             webSocket("/connect") {
+                println("--Start")
                 val acceptHeaderContent = call.request.header(HttpHeaders.Accept)
                 val acceptHeader = try {
                     parseHeaderValue(acceptHeaderContent)
@@ -386,6 +371,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
                     )
                 }
 
+                println("--Parsed")
                 var format: SerialFormat? = null
 
                 for ((contentType) in acceptHeader) {
@@ -405,7 +391,11 @@ class YtdlBox(val application: Application) : CoroutineScope {
                     }
                 }
 
+                println("--Decided on $format")
+
                 WebsocketControl(this@YtdlBox, this, format ?: Json)
+                    .incomingJob
+                    .join()
             }
 
             if (proxyListener != null) {
@@ -423,6 +413,14 @@ class YtdlBox(val application: Application) : CoroutineScope {
         }
 
     init {
+        application.install(CallLogging) {
+            level = Level.INFO
+            filter { call -> call.request.path().startsWith("/") }
+        }
+        application.intercept(ApplicationCallPipeline.Setup) {
+            println(call.request.headers.flattenEntries().joinToString("\n") { (k, v) -> "$k: $v" })
+        }
+
         application.install(ContentNegotiation) {
             json()
             serialization(ContentType.Application.Cbor, Cbor.Default)
@@ -441,14 +439,13 @@ class YtdlBox(val application: Application) : CoroutineScope {
 //        }
         application.routing(this::setupRouting)
 
-        logsDir.deleteRecursively()
-        holdingDir.deleteRecursively()
-
-        Runtime.getRuntime().addShutdownHook(thread {
+        Runtime.getRuntime().addShutdownHook(thread(start = false) {
             logsDir.deleteRecursively()
             holdingDir.deleteRecursively()
         })
     }
 }
+
+fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
 fun Application.module() = YtdlBox(this)

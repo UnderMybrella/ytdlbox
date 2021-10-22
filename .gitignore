@@ -3,3 +3,8 @@
 *.iml
 out
 gen
+application.conf
+
+holding
+logs
+build
