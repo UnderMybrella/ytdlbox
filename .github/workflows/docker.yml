@@ -31,7 +31,6 @@ jobs:
         name: Gradle build
         uses: eskatos/gradle-command-action@v1
         with:
-           wrapper-directory: gradpe/wrapper
            gradle-executable: gradlew
            arguments: :server:pushImage
 
