@@ -13,6 +13,7 @@ import io.ktor.serialization.*
 import io.ktor.util.*
 import io.ktor.util.pipeline.*
 import io.ktor.websocket.*
+import jdk.internal.joptsimple.util.RegexMatcher.regex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,13 +30,29 @@ import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.io.File
 import java.time.Duration
 import java.util.*
+import java.util.regex.Pattern
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
+
 
 inline fun CoroutineScope.OngoingProcess(taskID: String, url: String, parameters: List<String>, crossinline block: suspend CoroutineScope.(OngoingProcess) -> Unit) =
     OngoingProcess.invoke(this, taskID, url, parameters, block)
 
 class YtdlBox(val application: Application) : CoroutineScope {
+    companion object {
+        val STRING_SPLIT = Pattern.compile("[^\\s\"']+|\"([^\"]*)\"|'([^']*)'")
+
+        @OptIn(ExperimentalStdlibApi::class)
+        public fun String.splitParams(): List<String> = buildList {
+            val regexMatcher = STRING_SPLIT.matcher(this@splitParams)
+            while (regexMatcher.find()) {
+                regexMatcher.group(1)?.let(::add) // Add double-quoted string without the quotes
+                ?: regexMatcher.group(2)?.let(::add) // Add single-quoted string without the quotes
+                ?: add(regexMatcher.group()) // Add unquoted word
+            }
+        }
+    }
+
     override val coroutineContext: CoroutineContext = Dispatchers.IO + SupervisorJob()
 
     val ongoingTasks: MutableMap<String, OngoingProcess> = HashMap()
@@ -48,13 +65,22 @@ class YtdlBox(val application: Application) : CoroutineScope {
         .config
         .config("ytdlbox")
 
-    private val ytdlProcess = applicationConfig
-                                  .propertyOrNull("youtube-dl")
-                                  ?.getString() ?: if (System.getProperty("os.name").contains("win", true)) "youtube-dl.exe" else "youtube-dl"
+    private val ytdlProcess =
+        applicationConfig
+            .propertyOrNull("youtube-dl")
+            ?.getString()
+        ?: if (System.getProperty("os.name").contains("win", true))
+            "youtube-dl.exe"
+        else
+            "youtube-dl"
 
-    private val ytdlArgs = applicationConfig
-                               .propertyOrNull("args")
-                               ?.getList() ?: emptyList()
+    private val ytdlArgs =
+        System.getenv("BOX_YTDL_ARGS")
+            ?.splitParams()
+        ?: applicationConfig
+            .propertyOrNull("args")
+            ?.getList()
+        ?: emptyList()
 
     private val argon2 = Argon2PasswordEncoder()
     private val ytdlAuth = applicationConfig
