@@ -120,7 +120,7 @@ tasks.create<Sync>("syncShadowJarArchive") {
     dependsOn("assemble")
     from(
         tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFile.get().asFile,
-        File(rootProject.projectDir, "deployment/application.conf"),
+        File(rootProject.projectDir, "distribution/application.conf"),
     )
     into(
         tasks.named<com.bmuschko.gradle.docker.tasks.image.Dockerfile>("createDockerfile").get().destFile.get().asFile.parentFile
