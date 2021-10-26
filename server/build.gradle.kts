@@ -9,11 +9,13 @@ plugins {
     id("com.bmuschko.docker-remote-api")
 }
 
-version = "1.0.0"
+version = "1.1.0"
 
 val ktor_version: String by rootProject
 val kotlinx_coroutines_version: String by rootProject
 val kotlinx_serialisation_version: String by rootProject
+
+val useYtdlp: Boolean = true
 
 repositories {
     mavenCentral()
@@ -69,6 +71,42 @@ tasks.create<com.bmuschko.gradle.docker.tasks.image.Dockerfile>("createDockerfil
             "org.opencontainers.image.authors" to "UnderMybrella \"undermybrella@abimon.org\""
         )
     )
+
+    runCommand("apk add -q --progress --update --no-cache ca-certificates ffmpeg python3 && rm -rf /var/cache/apk/*")
+    if (useYtdlp) {
+        runCommand(
+            """
+                apk add -q --progress --update --no-cache --virtual deps gnupg && \
+                    ln -s /usr/bin/python3 /usr/local/bin/python && \
+                    wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
+                    apk del deps && \
+                    rm -rf /var/cache/apk/* && \
+                    chown 1000 /usr/local/bin/yt-dlp && \
+                    chmod 777 /usr/local/bin/yt-dlp
+    """.trimIndent()
+        )
+
+        environmentVariable("BOX_YTDL", "/usr/local/bin/yt-dlp")
+    } else {
+        runCommand(
+            """
+                apk add -q --progress --update --no-cache --virtual deps gnupg && \
+                    ln -s /usr/bin/python3 /usr/local/bin/python && \
+                    LATEST=${'$'}{YOUTUBE_DL_OVERWRITE:-latest} && \
+                    wget -q https://yt-dl.org/downloads/${'$'}LATEST/youtube-dl -O /usr/local/bin/youtube-dl && \
+                    wget -q https://yt-dl.org/downloads/${'$'}LATEST/youtube-dl.sig -O /tmp/youtube-dl.sig && \
+                    gpg --keyserver keyserver.ubuntu.com --recv-keys 'ED7F5BF46B3BBED81C87368E2C393E0F18A9236D' && \
+                    gpg --verify /tmp/youtube-dl.sig /usr/local/bin/youtube-dl && \
+                    SHA256=${'$'}(wget -qO- https://yt-dl.org/downloads/${'$'}LATEST/SHA2-256SUMS | head -n 1 | cut -d " " -f 1) && \
+                    [ ${'$'}(sha256sum /usr/local/bin/youtube-dl | cut -d " " -f 1) = "${'$'}SHA256" ] && \
+                    apk del deps && \
+                    rm -rf /var/cache/apk/* /tmp/youtube-dl.sig && \
+                    chown 1000 /usr/local/bin/youtube-dl && \
+                    chmod 777 /usr/local/bin/youtube-dl
+    """.trimIndent()
+        )
+    }
+
     copyFile(tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFileName.get(), "/app/ytdlbox-server.jar")
     copyFile("application.conf", "/app/application.conf")
     entryPoint("java")
