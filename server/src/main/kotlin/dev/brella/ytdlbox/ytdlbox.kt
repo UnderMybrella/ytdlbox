@@ -24,6 +24,7 @@ import kotlinx.serialization.SerialFormat
 import kotlinx.serialization.cbor.Cbor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
+import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import java.io.File
@@ -32,10 +33,8 @@ import java.util.*
 import java.util.regex.Pattern
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
-
-
-inline fun CoroutineScope.OngoingProcess(taskID: String, url: String, parameters: List<String>, crossinline block: suspend CoroutineScope.(OngoingProcess) -> Unit) =
-    OngoingProcess.invoke(this, taskID, url, parameters, block)
+import kotlin.time.ExperimentalTime
+import kotlin.time.TimeSource
 
 class YtdlBox(val application: Application) : CoroutineScope {
     companion object {
@@ -57,14 +56,16 @@ class YtdlBox(val application: Application) : CoroutineScope {
     val ongoingTasks: MutableMap<String, OngoingProcess> = HashMap()
     val incomingUrls: MutableMap<String, String> = HashMap()
 
-    private inline fun generateTaskID(): String = UUID.randomUUID().toString()
+    val logger = LoggerFactory.getLogger("YtdlBox")
+
+    inline fun generateTaskID(): String = UUID.randomUUID().toString()
 
     private val applicationConfig = application
         .environment
         .config
         .config("ytdlbox")
 
-    private val ytdlProcess =
+    val ytdlProcess =
         applicationConfig
             .propertyOrNull("youtube-dl")
             ?.getString()
@@ -73,7 +74,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
         else
             "youtube-dl"
 
-    private val ytdlArgs =
+    val ytdlArgs =
         System.getenv("BOX_YTDL_ARGS")
             ?.splitParams()
         ?: applicationConfig
@@ -101,7 +102,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
         .propertyOrNull("rotate_among_ipv6")
         ?.getString()
 
-    private val sourceAddresses = rotateAmongIPv6
+    val sourceAddresses = rotateAmongIPv6
         ?.let(::IPAddressString)
         ?.address?.let { base ->
             produce<IPAddress> {
@@ -111,7 +112,10 @@ class YtdlBox(val application: Application) : CoroutineScope {
                 }
 
                 while (isActive) {
-                    if (!seqBlocks.hasNext()) seqBlocks = base.sequentialBlockIterator()
+                    if (!seqBlocks.hasNext()) {
+                        logger.info("Refreshing SeqBlocks")
+                        seqBlocks = base.sequentialBlockIterator()
+                    }
 
                     seqBlocks.next()
                         .toSequentialRange()
@@ -148,116 +152,6 @@ class YtdlBox(val application: Application) : CoroutineScope {
     fun outputFileForTask(taskID: String): File? =
         holdingDir.listFiles()
             ?.firstOrNull { file -> file.nameWithoutExtension == taskID }
-
-    fun beginDownload(url: String, options: List<String>): OngoingProcess =
-        OngoingProcess(generateTaskID(), url, options) { ongoing ->
-            ongoing.status = ProcessStatus.INITIALISING
-
-            val logFile = logFileForTask(ongoing.taskID)
-            val holdingTemplate = outputTemplateForTask(ongoing.taskID)
-
-            var successful: Boolean = false
-
-            for (i in 0 until 5) {
-                val proxy = proxyListener?.borrowProxy()
-
-                try {
-                    val fullCommandLine = ArrayList<String>().apply {
-                        add(ytdlProcess)
-                        addAll(ytdlArgs)
-                        addAll(options)
-
-                        if (proxy != null) {
-                            add("--proxy")
-                            add(proxy.address)
-                        } else if (sourceAddresses?.isClosedForReceive == false) {
-                            val ip = sourceAddresses.receive()
-
-                            println("--Using $ip")
-
-                            if (ip.isIPv6) add("--force-ipv6")
-                            else if (ip.isIPv6) add("--force-ipv4")
-
-                            add("--source-address")
-                            add(ip.toCanonicalString())
-                        }
-
-                        add("-o")
-                        add(holdingTemplate)
-
-                        add(ongoing.url)
-                    }
-
-                    ongoing.commandLine = fullCommandLine
-                    ongoing.process = ProcessBuilder(fullCommandLine)
-                        .redirectOutput(logFile)
-                        .redirectErrorStream(true)
-                        .start()
-
-                    ongoing.status = ProcessStatus.RUNNING
-
-                    try {
-                        ongoing.process
-                            .toHandle()
-                            .onExit()
-                            .await()
-                    } catch (uoe: UnsupportedOperationException) {
-                        ongoing.process.waitFor()
-                    }
-
-                    successful = ongoing.process.exitValue() <= 0
-                    if (successful) break
-                    if (!ongoing.onFailure.fold(true) { acc, func -> acc && func(ongoing, logFile) }) break
-                } catch (th: Throwable) {
-                    th.printStackTrace()
-                } finally {
-                    if (proxy != null) {
-                        var proxyError: Boolean = false
-
-                        if (logFile.exists()) {
-                            logFile.useLines { seq ->
-                                seq.forEach { line ->
-                                    if (line.contains("ERROR", true) && line.contains("forcibly closed by the remote host", true)) {
-                                        println("Warning $proxy due to $line")
-
-                                        proxyError = true
-                                        return@useLines
-                                    }
-                                }
-                            }
-                        }
-
-                        proxyListener!!.returnProxy(proxy, proxyError)
-                    }
-                }
-            }
-
-            ongoing.status = if (successful) ProcessStatus.COMPLETE_SUCCESS else ProcessStatus.COMPLETE_FAILURE
-            val outputFile = outputFileForTask(ongoing.taskID)
-
-            try {
-                if (successful && outputFile?.exists() == true) ongoing.onSuccess.forEach { it(ongoing, logFile, outputFile) }
-                ongoing.onComplete.forEach { it(ongoing, logFile, outputFile) }
-
-                delay(120_000)
-
-                ongoing.status = ProcessStatus.SHUTTING_DOWN
-
-                delay(60_000)
-
-                ongoingTasks.remove(ongoing.taskID)
-                incomingUrls.remove(ongoing.url)
-            } finally {
-                logFile.delete()
-                outputFile?.delete()
-            }
-
-//            logFileForTask(ongoing.taskID).delete()
-//            outputFileForTask(ongoing.taskID)?.delete()
-        }.also { process ->
-            ongoingTasks[process.taskID] = process
-            incomingUrls[process.url] = process.taskID
-        }
 
     private suspend inline fun PipelineContext<Unit, ApplicationCall>.isAllowed(): Boolean {
         val existingAuth = call.request.header(HttpHeaders.Authorization) ?: return false
@@ -378,7 +272,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
                 if (existingTask != null) {
                     return@post call.respond(DownloadResponse(existingTask.taskID, false, existingTask.url, existingTask.parameters))
                 } else {
-                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(beginDownload(request.url, request.args).taskID, true, request.url, request.args))
+                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(OngoingProcess.beginDownloadFor(this@YtdlBox, request.url, request.args).taskID, true, request.url, request.args))
                 }
             }
             webSocket("/connect") {

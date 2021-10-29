@@ -1,5 +1,6 @@
 package dev.brella.ytdlbox
 
+import io.ktor.features.*
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.websocket.*
@@ -15,9 +16,12 @@ import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.encodeToString
+import org.slf4j.LoggerFactory
 import java.io.File
 
 class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, val format: SerialFormat) : WebSocketServerSession by session {
+    val logger = LoggerFactory.getLogger("WebsocketControl")
+
     val incomingJob = when (format) {
         is StringFormat -> incoming.receiveAsFlow()
             .filterIsInstance<Frame.Text>()
@@ -50,6 +54,8 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
 
 
     suspend fun receiveRequest(request: WebsocketRequest) {
+        logger.info("{}: /{}", session.call.request.origin, request::class.simpleName)
+
         when (request) {
             is WebsocketRequest.AddProxyServer ->
                 if (box.proxyListener?.addProxy(request.proxy) != null)
@@ -76,7 +82,7 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
                         send(WebsocketResponse.Downloading(nonce, existingTask.taskID, false, existingTask.url, existingTask.parameters))
                     }
                 } else {
-                    val process = box.beginDownload(request.request.url, request.request.args)
+                    val process = OngoingProcess.beginDownloadFor(box, request.request.url, request.request.args)
                     if (request.listenFor) process.onComplete.add { completed, logFile, outputFile -> onCompletion(nonce, completed, logFile, outputFile) }
 
                     send(WebsocketResponse.Downloading(nonce, process.taskID, true, process.url, process.parameters))
