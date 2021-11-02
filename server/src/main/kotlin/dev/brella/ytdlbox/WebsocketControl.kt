@@ -5,9 +5,11 @@ import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onErrorResume
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.serialization.BinaryFormat
 import kotlinx.serialization.SerialFormat
@@ -39,10 +41,14 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
     val outgoingChannel = Channel<WebsocketResponse>(16)
     val outgoingJob = when (format) {
         is StringFormat -> outgoingChannel.receiveAsFlow()
+            .catch { th -> th.printStackTrace() }
+            .onEach { logger.trace("[{}] Sending {}", it.nonce, it::class.simpleName) }
             .onEach { response -> send(format.encodeToString(response)); flush() }
             .launchIn(this)
 
         is BinaryFormat -> outgoingChannel.receiveAsFlow()
+            .catch { th -> th.printStackTrace() }
+            .onEach { logger.trace("[{}] Sending {}", it.nonce, it::class.simpleName) }
             .onEach { response -> send(format.encodeToByteArray(response)); flush() }
             .launchIn(this)
 
@@ -54,7 +60,7 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
 
 
     suspend fun receiveRequest(request: WebsocketRequest) {
-        logger.info("{}: /{}", session.call.request.origin, request::class.simpleName)
+        logger.info("[{}] {}: /{}", request.nonce, session.call.request.origin, request::class.simpleName)
 
         when (request) {
             is WebsocketRequest.AddProxyServer ->
@@ -94,6 +100,8 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
 //    suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit
 
     suspend fun onCompletion(nonce: Long, process: OngoingProcess, logsFile: File, outputFile: File?) {
+        logger.debug("[{}] Running completion handler for {}: {}", nonce, process.taskID, process.status)
+
         if (process.status == ProcessStatus.COMPLETE_SUCCESS) {
             val logs = logsFile
                 .takeIf(File::exists)
