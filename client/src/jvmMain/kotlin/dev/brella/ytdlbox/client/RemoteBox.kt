@@ -32,11 +32,13 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
         is StringFormat -> incoming.receiveAsFlow()
             .filterIsInstance<Frame.Text>()
             .map { frame -> format.decodeFromString<WebsocketResponse>(frame.readText()) }
+            .onEach { println("Receiving ${it::class.simpleName}") }
             .shareIn(this, SharingStarted.Eagerly, 0)
 
         is BinaryFormat -> incoming.receiveAsFlow()
             .filterIsInstance<Frame.Binary>()
             .map { frame -> format.decodeFromByteArray<WebsocketResponse>(frame.readBytes()) }
+            .onEach { println("Receiving ${it::class.simpleName}") }
             .shareIn(this, SharingStarted.Eagerly, 0)
 
         else -> error("Unknown SerialFormat $format (${format::class})")

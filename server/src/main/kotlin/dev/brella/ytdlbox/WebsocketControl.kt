@@ -39,11 +39,11 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
     val outgoingChannel = Channel<WebsocketResponse>(16)
     val outgoingJob = when (format) {
         is StringFormat -> outgoingChannel.receiveAsFlow()
-            .onEach { response -> send(format.encodeToString(response)) }
+            .onEach { response -> send(format.encodeToString(response)); flush() }
             .launchIn(this)
 
         is BinaryFormat -> outgoingChannel.receiveAsFlow()
-            .onEach { response -> send(format.encodeToByteArray(response)) }
+            .onEach { response -> send(format.encodeToByteArray(response)); flush() }
             .launchIn(this)
 
         else -> error("Unknown SerialFormat $format (${format::class})")

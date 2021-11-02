@@ -37,12 +37,14 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                 val logFile = box.logFileForTask(ongoing.taskID)
                 val holdingTemplate = box.outputTemplateForTask(ongoing.taskID)
 
-                var successful: Boolean = false
+                var didSucceed: Boolean? = null
 
                 logger.info("[${ongoing.taskID}] Download requested for {} ({})", url, options)
                 val start = TimeSource.Monotonic.markNow()
 
                 for (i in 0 until 5) {
+                    if (didSucceed != null) break
+
                     val proxy = box.proxyListener?.borrowProxy()
 
                     try {
@@ -89,8 +91,8 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                             ongoing.process.waitFor()
                         }
 
-                        successful = ongoing.process.exitValue() <= 0
-                        if (successful) break
+                        didSucceed = ongoing.process.exitValue() <= 0
+                        if (didSucceed) break
                         if (!ongoing.onFailure.fold(true) { acc, func -> acc && func(ongoing, logFile) }) break
                     } catch (th: Throwable) {
                         th.printStackTrace()
@@ -106,6 +108,11 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
 
                                             proxyError = true
                                             return@useLines
+                                        } else if (line.contains("ERROR", true) && line.contains("This video is not available", true)) {
+                                            logger.warn("[{}] {} was marked as unavailable", ongoing.taskID, url)
+
+                                            didSucceed = false
+                                            return@useLines
                                         }
                                     }
                                 }
@@ -116,13 +123,15 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                     }
                 }
 
+                val wasSuccessful = didSucceed ?: false
+
                 val end = start.elapsedNow()
                 logger.info("[${ongoing.taskID}] Download complete for {} in {}", url, end)
-                ongoing.status = if (successful) ProcessStatus.COMPLETE_SUCCESS else ProcessStatus.COMPLETE_FAILURE
+                ongoing.status = if (wasSuccessful) ProcessStatus.COMPLETE_SUCCESS else ProcessStatus.COMPLETE_FAILURE
                 val outputFile = box.outputFileForTask(ongoing.taskID)
 
                 try {
-                    if (successful && outputFile?.exists() == true) ongoing.onSuccess.forEach { it(ongoing, logFile, outputFile) }
+                    if (wasSuccessful && outputFile?.exists() == true) ongoing.onSuccess.forEach { it(ongoing, logFile, outputFile) }
                     ongoing.onComplete.forEach { it(ongoing, logFile, outputFile) }
 
                     delay(120_000)
