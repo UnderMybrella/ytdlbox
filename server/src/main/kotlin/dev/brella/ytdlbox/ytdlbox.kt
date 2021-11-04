@@ -17,8 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.produce
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.future.await
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.SerialFormat
 import kotlinx.serialization.cbor.Cbor
@@ -33,8 +31,6 @@ import java.util.*
 import java.util.regex.Pattern
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
-import kotlin.time.ExperimentalTime
-import kotlin.time.TimeSource
 
 class YtdlBox(val application: Application) : CoroutineScope {
     companion object {
@@ -60,7 +56,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
 
     inline fun generateTaskID(): String = UUID.randomUUID().toString()
 
-    private val applicationConfig = application
+    internal val applicationConfig = application
         .environment
         .config
         .config("ytdlbox")
@@ -81,6 +77,12 @@ class YtdlBox(val application: Application) : CoroutineScope {
             .propertyOrNull("args")
             ?.getList()
         ?: emptyList()
+
+    val actionConfigs: Map<CompletionActionType, CompletionActionType.CompletionActionConfig> =
+        CompletionActionType
+            .values()
+            .mapNotNull { config -> config(this)?.let(config::to) }
+            .toMap()
 
     private val argon2 = Argon2PasswordEncoder()
     private val ytdlAuth = applicationConfig
@@ -272,7 +274,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
                 if (existingTask != null) {
                     return@post call.respond(DownloadResponse(existingTask.taskID, false, existingTask.url, existingTask.parameters))
                 } else {
-                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(OngoingProcess.beginDownloadFor(this@YtdlBox, request.url, request.args).taskID, true, request.url, request.args))
+                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(OngoingProcess.beginDownloadFor(this@YtdlBox, request.url, request.args, request.completionActions).taskID, true, request.url, request.args))
                 }
             }
             webSocket("/connect") {
@@ -336,9 +338,9 @@ class YtdlBox(val application: Application) : CoroutineScope {
             level = Level.INFO
             filter { call -> call.request.path().startsWith("/") }
         }
-        application.intercept(ApplicationCallPipeline.Setup) {
-            println(call.request.headers.flattenEntries().joinToString("\n") { (k, v) -> "$k: $v" })
-        }
+//        application.intercept(ApplicationCallPipeline.Setup) {
+//            println(call.request.headers.flattenEntries().joinToString("\n") { (k, v) -> "$k: $v" })
+//        }
 
         application.install(ContentNegotiation) {
             json()

@@ -1,5 +1,6 @@
 package dev.brella.ytdlbox
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 enum class ProcessStatus(val isComplete: Boolean) {
@@ -11,7 +12,7 @@ enum class ProcessStatus(val isComplete: Boolean) {
 }
 
 @Serializable
-data class DownloadRequest(val url: String, val args: List<String> = emptyList())
+data class DownloadRequest(val url: String, val args: List<String> = emptyList(), val completionActions: List<CompletionRequest> = emptyList())
 
 @Serializable
 data class DownloadResponse(val id: String, val created: Boolean, val url: String, val args: List<String>)
@@ -79,12 +80,18 @@ data class DownloadProxy(val address: String, val limit: Int, val errorLimit: In
 @Serializable
 data class WebError(val id: String, val errorMessage: String)
 
+enum class ListenCondition {
+    DO_NOT_LISTEN,
+    LISTEN_WITH_DATA,
+    LISTEN_NO_DATA
+}
+
 @Serializable
 sealed class WebsocketRequest {
     abstract val nonce: Long
 
     @Serializable
-    data class Download(override val nonce: Long, val request: DownloadRequest, val listenFor: Boolean = true) : WebsocketRequest()
+    data class Download(override val nonce: Long, val request: DownloadRequest, val listenFor: ListenCondition = ListenCondition.DO_NOT_LISTEN) : WebsocketRequest()
 
     @Serializable
     data class AddProxyServer(override val nonce: Long, val proxy: DownloadProxy) : WebsocketRequest()
@@ -129,4 +136,13 @@ sealed class WebsocketResponse {
         val mimeType: String?,
         val logs: List<String>
     ) : WebsocketResponse()
+}
+
+data class ProcessOutput(val exitCode: Int, val stdout: ByteArray, val stderr: ByteArray)
+
+@Serializable
+sealed class CompletionRequest {
+    @Serializable
+    @SerialName("rclone")
+    data class UploadWithRClone(val path: String) : CompletionRequest()
 }

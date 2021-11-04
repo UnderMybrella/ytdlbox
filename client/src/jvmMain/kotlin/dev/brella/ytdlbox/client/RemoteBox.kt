@@ -1,7 +1,9 @@
 package dev.brella.ytdlbox.client
 
+import dev.brella.ytdlbox.CompletionRequest
 import dev.brella.ytdlbox.DownloadProxy
 import dev.brella.ytdlbox.DownloadRequest
+import dev.brella.ytdlbox.ListenCondition
 import dev.brella.ytdlbox.WebsocketRequest
 import dev.brella.ytdlbox.WebsocketResponse
 import io.ktor.client.*
@@ -32,13 +34,13 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
         is StringFormat -> incoming.receiveAsFlow()
             .filterIsInstance<Frame.Text>()
             .map { frame -> format.decodeFromString<WebsocketResponse>(frame.readText()) }
-            .onEach { println("Receiving ${it::class.simpleName}") }
+//            .onEach { println("Receiving ${it::class.simpleName}") }
             .shareIn(this, SharingStarted.Eagerly, 0)
 
         is BinaryFormat -> incoming.receiveAsFlow()
             .filterIsInstance<Frame.Binary>()
             .map { frame -> format.decodeFromByteArray<WebsocketResponse>(frame.readBytes()) }
-            .onEach { println("Receiving ${it::class.simpleName}") }
+//            .onEach { println("Receiving ${it::class.simpleName}") }
             .shareIn(this, SharingStarted.Eagerly, 0)
 
         else -> error("Unknown SerialFormat $format (${format::class})")
@@ -79,11 +81,14 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
         return (response as? T) to (response as? R)
     }
 
-    suspend fun download(url: String, args: List<String>): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
-        sendAndWaitWithError(WebsocketRequest.Download(nonce(), DownloadRequest(url, args), true))
+    suspend fun downloadWithData(url: String, args: List<String>, completionRequests: List<CompletionRequest>): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
+        sendAndWaitWithError(WebsocketRequest.Download(nonce(), DownloadRequest(url, args, completionRequests), ListenCondition.LISTEN_WITH_DATA))
 
-    suspend fun beginDownload(url: String, args: List<String>): WebsocketResponse.Downloading =
-        sendAndWait(WebsocketRequest.Download(nonce(), DownloadRequest(url, args), false))
+    suspend fun downloadWithoutData(url: String, args: List<String>, completionRequests: List<CompletionRequest>): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
+        sendAndWaitWithError(WebsocketRequest.Download(nonce(), DownloadRequest(url, args, completionRequests), ListenCondition.LISTEN_NO_DATA))
+
+    suspend fun beginDownload(url: String, args: List<String>, completionRequests: List<CompletionRequest>): WebsocketResponse.Downloading =
+        sendAndWait(WebsocketRequest.Download(nonce(), DownloadRequest(url, args, completionRequests), ListenCondition.DO_NOT_LISTEN))
 
     suspend fun addProxyServer(address: String, limit: Int, errorLimit: Int = 3): Pair<WebsocketResponse.AddedProxyServer?, WebsocketResponse.NoProxyListener?> =
         sendAndWaitWithError(WebsocketRequest.AddProxyServer(nonce(), DownloadProxy(address, limit, errorLimit)))

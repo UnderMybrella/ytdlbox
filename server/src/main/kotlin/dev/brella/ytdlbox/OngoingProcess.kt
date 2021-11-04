@@ -30,7 +30,7 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
         val logger = LoggerFactory.getLogger("OngoingProcess")
 
         @OptIn(ExperimentalTime::class)
-        inline fun beginDownloadFor(box: YtdlBox, url: String, options: List<String>): OngoingProcess =
+        inline fun beginDownloadFor(box: YtdlBox, url: String, options: List<String>, completionRequests: List<CompletionRequest>): OngoingProcess =
             box.OngoingProcess(box.generateTaskID(), url, options) { ongoing ->
                 ongoing.status = ProcessStatus.INITIALISING
 
@@ -152,7 +152,13 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
             }.also { process ->
                 box.ongoingTasks[process.taskID] = process
                 box.incomingUrls[process.url] = process.taskID
+
+                CompletionAction.parseRequests(completionRequests)
+                    .forEach { action -> process.onComplete.add(action, box) }
             }
+
+        inline fun MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit)>.add(action: CompletionAction<*>, bind: YtdlBox) =
+            add { process, logFile, outputFile -> action.onCompletion(bind, process, logFile, outputFile) }
     }
 
     /** Invoked on success */

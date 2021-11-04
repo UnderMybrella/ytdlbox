@@ -78,18 +78,19 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
             is WebsocketRequest.Download -> {
                 val existingTask = box.incomingUrls[request.request.url]?.let(box.ongoingTasks::get)
                 val nonce = request.nonce
+                val listenFor = request.listenFor
 
                 if (existingTask != null) {
                     if (existingTask.status.isComplete) {
                         send(WebsocketResponse.Downloading(nonce, existingTask.taskID, false, existingTask.url, existingTask.parameters))
-                        onCompletion(nonce, existingTask, box.logFileForTask(existingTask.taskID), box.outputFileForTask(existingTask.taskID))
+                        if (listenFor != ListenCondition.DO_NOT_LISTEN) onCompletion(nonce, existingTask, box.logFileForTask(existingTask.taskID), box.outputFileForTask(existingTask.taskID), listenFor)
                     } else {
-                        if (request.listenFor) existingTask.onComplete.add { completed, logFile, outputFile -> onCompletion(nonce, completed, logFile, outputFile) }
+                        if (listenFor != ListenCondition.DO_NOT_LISTEN) existingTask.onComplete.add { completed, logFile, outputFile -> onCompletion(nonce, completed, logFile, outputFile, listenFor) }
                         send(WebsocketResponse.Downloading(nonce, existingTask.taskID, false, existingTask.url, existingTask.parameters))
                     }
                 } else {
-                    val process = OngoingProcess.beginDownloadFor(box, request.request.url, request.request.args)
-                    if (request.listenFor) process.onComplete.add { completed, logFile, outputFile -> onCompletion(nonce, completed, logFile, outputFile) }
+                    val process = OngoingProcess.beginDownloadFor(box, request.request.url, request.request.args, request.request.completionActions)
+                    if (listenFor != ListenCondition.DO_NOT_LISTEN) process.onComplete.add { completed, logFile, outputFile -> onCompletion(nonce, completed, logFile, outputFile, listenFor) }
 
                     send(WebsocketResponse.Downloading(nonce, process.taskID, true, process.url, process.parameters))
                 }
@@ -99,7 +100,7 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
 
 //    suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit
 
-    suspend fun onCompletion(nonce: Long, process: OngoingProcess, logsFile: File, outputFile: File?) {
+    suspend fun onCompletion(nonce: Long, process: OngoingProcess, logsFile: File, outputFile: File?, listenFor: ListenCondition) {
         logger.debug("[{}] Running completion handler for {}: {}", nonce, process.taskID, process.status)
 
         if (process.status == ProcessStatus.COMPLETE_SUCCESS) {
@@ -107,9 +108,12 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
                 .takeIf(File::exists)
                 ?.useLines { it.toList() }
 
-            val output = outputFile
-                ?.takeIf(File::exists)
-                ?.readBytes()
+            val output = if (listenFor == ListenCondition.LISTEN_WITH_DATA)
+                outputFile
+                    ?.takeIf(File::exists)
+                    ?.readBytes()
+            else
+                null
 
             val mimeType = outputFile
                 ?.let(ContentType::defaultForFile)
