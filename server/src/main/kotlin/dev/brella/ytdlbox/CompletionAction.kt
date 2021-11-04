@@ -16,8 +16,8 @@ sealed class CompletionAction<T> {
                 return ProcessBuilder(
                     listOf(
                         rcloneProcess,
-                        "copy",
-                        "--progress",
+                        "copyto",
+//                        "--progress",
                         outputFile.absolutePath,
                         "$rcloneEndpoint:${config.basePath ?: ""}/${path}"
                     )

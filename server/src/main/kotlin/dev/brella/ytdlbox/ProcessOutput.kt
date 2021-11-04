@@ -57,5 +57,8 @@ suspend inline fun Process.tap(scope: CoroutineScope, context: CoroutineContext 
     stdoutJob.cancelAndJoin()
     stderrJob.cancelAndJoin()
 
+//    println(stdout.toByteArray().decodeToString())
+//    println(stderr.toByteArray().decodeToString())
+
     return ProcessOutput(exitValue(), stdout.toByteArray(), stderr.toByteArray())
 }

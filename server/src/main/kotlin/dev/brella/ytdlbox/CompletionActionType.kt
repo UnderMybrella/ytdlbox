@@ -11,16 +11,20 @@ enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionAct
         fun isAvailable(): Boolean
     }
 
-    class UploadWithRClone(box: YtdlBox): CompletionActionConfig {
+    class UploadWithRClone(box: YtdlBox) : CompletionActionConfig {
         private val config =
             try {
                 box.applicationConfig.config("rclone")
-            } catch (ace: ApplicationConfigurationException) {
+            } catch (th: Throwable) {
                 null
             }
 
         val rcloneProcess: String? =
-            config?.let { it.propertyOrNull("rclone")?.getString() ?: "rclone" }
+            config?.let {
+                it.propertyOrNull("rclone")?.getString()
+                ?: if (System.getProperty("os.name").contains("win", true)) "rclone.exe"
+                else "rclone"
+            }
 
         val endpoint: String? =
             config?.propertyOrNull("endpoint")?.getString()
