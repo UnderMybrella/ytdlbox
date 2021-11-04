@@ -1,17 +1,14 @@
 package dev.brella.ytdlbox
 
-import jdk.internal.org.jline.utils.Colors.s
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.future.await
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.EmptyCoroutineContext
 
 @Suppress("BlockingMethodInNonBlockingContext")
 suspend inline fun ProcessBuilder.startAndTap(context: CoroutineContext = Dispatchers.IO): ProcessOutput =
