@@ -10,6 +10,11 @@ import kotlinx.coroutines.yield
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.CoroutineContext
 
+suspend inline fun buildProcessAndTap(vararg command: String, context: CoroutineContext = Dispatchers.IO, builder: ProcessBuilder.() -> Unit): ProcessOutput =
+    ProcessBuilder(command.asList())
+        .apply(builder)
+        .startAndTap(context)
+
 @Suppress("BlockingMethodInNonBlockingContext")
 suspend inline fun ProcessBuilder.startAndTap(context: CoroutineContext = Dispatchers.IO): ProcessOutput =
     withContext(context) { start().tap(this, context) }

@@ -4,12 +4,15 @@ import dev.brella.ytdlbox.CompletionRequest
 import dev.brella.ytdlbox.DownloadProxy
 import dev.brella.ytdlbox.DownloadRequest
 import dev.brella.ytdlbox.ListenCondition
+import dev.brella.ytdlbox.TaskInfo
 import dev.brella.ytdlbox.WebsocketRequest
 import dev.brella.ytdlbox.WebsocketResponse
+import dev.brella.ytdlbox.YtdlBoxFeatureSet
 import io.ktor.client.*
 import io.ktor.client.features.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
+import io.ktor.http.cio.*
 import io.ktor.http.cio.websocket.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,11 +77,14 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
     }
 
     suspend inline fun <reified T : WebsocketResponse, reified R : WebsocketResponse>
-            sendAndWaitWithError(request: WebsocketRequest): Pair<T?, R?> {
+            sendAndWaitWithError(request: WebsocketRequest): Pair<T?, R?> = sendAndWaitWithError(request, ::Pair)
+
+    suspend inline fun <reified T : WebsocketResponse, reified R : WebsocketResponse, U>
+            sendAndWaitWithError(request: WebsocketRequest, buildResponse: (T?, R?) -> U): U {
         send(request)
         val response = incomingFlow.first { response -> response.nonce == request.nonce && (response is T || response is R) }
 
-        return (response as? T) to (response as? R)
+        return buildResponse(response as? T, response as? R)
     }
 
     suspend fun downloadWithData(url: String, args: List<String>, completionRequests: List<CompletionRequest>): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
@@ -95,6 +101,21 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
 
     suspend fun removeProxyServer(address: String): Pair<WebsocketResponse.RemovedProxyServer?, WebsocketResponse.NoProxyListener?> =
         sendAndWaitWithError(WebsocketRequest.RemoveProxyServer(nonce(), address))
+
+    suspend fun getServerInfo(): YtdlBoxFeatureSet =
+        sendAndWait<WebsocketResponse.ServerInfo>(WebsocketRequest.GetServerInfo(nonce()))
+            .featureSet
+
+    suspend fun getTaskInfo(taskID: String): Pair<TaskInfo?, WebsocketResponse.NoTaskWithID?> =
+        sendAndWaitWithError(WebsocketRequest.GetTaskInfo(nonce(), taskID))
+        { taskInfo: WebsocketResponse.TaskInfo?, noTaskWithID: WebsocketResponse.NoTaskWithID? -> Pair(taskInfo?.taskInfo, noTaskWithID) }
+
+    suspend fun getTaskLogs(taskID: String): List<String> =
+        sendAndWait<WebsocketResponse.TaskLogs>(WebsocketRequest.GetTaskLogs(nonce(), taskID))
+            .lines
+
+    suspend fun getTaskDownload(taskID: String): Pair<WebsocketResponse.TaskDownload?, WebsocketResponse.NoDownloadForTaskAvailable?> =
+        sendAndWaitWithError(WebsocketRequest.GetTaskDownload(nonce(), taskID))
 }
 
 suspend fun HttpClient.remoteBox(urlString: String, auth: String, format: Pair<ContentType, SerialFormat>, builder: HttpRequestBuilder.() -> Unit = {}): RemoteBox =

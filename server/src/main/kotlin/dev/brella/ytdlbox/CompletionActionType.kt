@@ -1,6 +1,7 @@
 package dev.brella.ytdlbox
 
 import io.ktor.config.*
+import kotlinx.coroutines.Dispatchers
 
 enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionActionConfig) {
     RCLONE(::UploadWithRClone);
@@ -9,6 +10,7 @@ enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionAct
 
     interface CompletionActionConfig {
         fun isAvailable(): Boolean
+        fun buildFeatureSet(): YtdlBoxCompletionActionFeatureSet?
     }
 
     class UploadWithRClone(box: YtdlBox) : CompletionActionConfig {
@@ -32,6 +34,35 @@ enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionAct
         val basePath: String? =
             config?.propertyOrNull("base_path")?.getString()
 
+        private val featureSet by lazy {
+            val endpoint = endpoint ?: return@lazy null
+            val endpointTypeProcess = ProcessBuilder(
+                rcloneProcess ?: return@lazy null,
+                "listremotes",
+                "--long"
+            ).start()
+
+            val endpointTypeData = endpointTypeProcess
+                .inputStream
+                .readBytes()
+                .decodeToString()
+
+            endpointTypeProcess.waitFor()
+
+//            val endpointType =
+            YtdlBoxCompletionActionFeatureSet.RClone(
+                rcloneProcess = rcloneProcess,
+                endpoint = endpoint,
+                endpointType = endpointTypeData
+                    .split("\n")
+                    .firstOrNull { line -> line.trim().startsWith(endpoint) }
+                    ?.substringAfterLast(':')
+                    ?.trim(),
+                basePath = basePath
+            )
+        }
+
         override fun isAvailable(): Boolean = endpoint != null
+        override fun buildFeatureSet(): YtdlBoxCompletionActionFeatureSet? = featureSet
     }
 }

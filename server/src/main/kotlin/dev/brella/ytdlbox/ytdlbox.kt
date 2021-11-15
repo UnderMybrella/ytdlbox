@@ -100,7 +100,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
             }
         }
 
-    private val rotateAmongIPv6 = applicationConfig
+    internal val rotateAmongIPv6 = applicationConfig
         .propertyOrNull("rotate_among_ipv6")
         ?.getString()
 
@@ -170,6 +170,17 @@ class YtdlBox(val application: Application) : CoroutineScope {
                     call.respond(HttpStatusCode.Unauthorized)
                     finish()
                 }
+            }
+
+            get("/info") {
+                call.respond(YtdlBoxFeatureSet(
+                    ytdlProcess = ytdlProcess,
+                    defaultArgs = ytdlArgs,
+                    rotatingIpv6 = rotateAmongIPv6 != null,
+                    listeningForProxy = proxyListener != null,
+                    completionActions = actionConfigs.values
+                        .mapNotNull(CompletionActionType.CompletionActionConfig::buildFeatureSet)
+                ))
             }
 
             route("/{task_id}") {
@@ -278,7 +289,6 @@ class YtdlBox(val application: Application) : CoroutineScope {
                 }
             }
             webSocket("/connect") {
-                println("--Start")
                 val acceptHeaderContent = call.request.header(HttpHeaders.Accept)
                 val acceptHeader = try {
                     parseHeaderValue(acceptHeaderContent)
@@ -292,7 +302,6 @@ class YtdlBox(val application: Application) : CoroutineScope {
                     )
                 }
 
-                println("--Parsed")
                 var format: SerialFormat? = null
 
                 for ((contentType) in acceptHeader) {
@@ -311,8 +320,6 @@ class YtdlBox(val application: Application) : CoroutineScope {
                         }
                     }
                 }
-
-                println("--Decided on $format")
 
                 WebsocketControl(this@YtdlBox, this, format ?: Json)
                     .incomingJob

@@ -98,6 +98,18 @@ sealed class WebsocketRequest {
 
     @Serializable
     data class RemoveProxyServer(override val nonce: Long, val address: String) : WebsocketRequest()
+
+    @Serializable
+    data class GetServerInfo(override val nonce: Long) : WebsocketRequest()
+
+    @Serializable
+    data class GetTaskInfo(override val nonce: Long, val taskID: String) : WebsocketRequest()
+
+    @Serializable
+    data class GetTaskLogs(override val nonce: Long, val taskID: String) : WebsocketRequest()
+
+    @Serializable
+    data class GetTaskDownload(override val nonce: Long, val taskID: String) : WebsocketRequest()
 }
 
 @Serializable
@@ -135,6 +147,43 @@ sealed class WebsocketResponse {
         val output: @Serializable(Base64ByteArraySerialiser::class) ByteArray,
         val mimeType: String?,
         val logs: List<String>
+    ) : WebsocketResponse()
+
+    @Serializable
+    data class ServerInfo(
+        override val nonce: Long,
+        val featureSet: YtdlBoxFeatureSet
+    ) : WebsocketResponse()
+
+    @Serializable
+    data class NoTaskWithID(
+        override val nonce: Long,
+        val taskID: String
+    ) : WebsocketResponse()
+
+    @Serializable
+    data class TaskInfo(
+        override val nonce: Long,
+        val taskInfo: dev.brella.ytdlbox.TaskInfo
+    ) : WebsocketResponse()
+
+    @Serializable
+    data class TaskLogs(
+        override val nonce: Long,
+        val lines: List<String>
+    ) : WebsocketResponse()
+
+    @Serializable
+    data class NoDownloadForTaskAvailable(
+        override val nonce: Long,
+        val taskID: String
+    ) : WebsocketResponse()
+
+    @Serializable
+    data class TaskDownload(
+        override val nonce: Long,
+        val output: @Serializable(Base64ByteArraySerialiser::class) ByteArray,
+        val mimeType: String?,
     ) : WebsocketResponse()
 }
 
