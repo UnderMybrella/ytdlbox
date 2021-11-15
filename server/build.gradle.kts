@@ -9,7 +9,7 @@ plugins {
     id("com.bmuschko.docker-remote-api")
 }
 
-version = "1.4.0"
+version = "1.4.1"
 
 val ktor_version: String by rootProject
 val kotlinx_coroutines_version: String by rootProject
@@ -120,7 +120,7 @@ tasks.create<Sync>("syncShadowJarArchive") {
     dependsOn("assemble")
     from(
         tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFile.get().asFile,
-        File(rootProject.projectDir, "distribution/application.conf"),
+        File(rootProject.projectDir, "distribution/docker/application.conf"),
     )
     into(
         tasks.named<com.bmuschko.gradle.docker.tasks.image.Dockerfile>("createDockerfile").get().destFile.get().asFile.parentFile
