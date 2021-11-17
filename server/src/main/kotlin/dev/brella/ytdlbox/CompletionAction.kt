@@ -4,7 +4,7 @@ import java.io.File
 
 sealed class CompletionAction<T> {
     data class UploadWithRClone(val path: String) : CompletionAction<ProcessOutput?>() {
-        constructor(request: CompletionRequest.UploadWithRClone): this(request.path)
+        constructor(request: CompletionRequest.UploadWithRClone) : this(request.path)
 
         override suspend fun onCompletion(box: YtdlBox, process: OngoingProcess, logFile: File, outputFile: File?): ProcessOutput? {
             val config = box.actionConfigs[CompletionActionType.RCLONE] as? CompletionActionType.UploadWithRClone ?: return null
@@ -19,7 +19,16 @@ sealed class CompletionAction<T> {
                         "copyto",
 //                        "--progress",
                         outputFile.absolutePath,
-                        "$rcloneEndpoint:${config.basePath ?: ""}/${path}"
+                        buildString {
+                            append(rcloneEndpoint)
+                            append(':')
+                            if (config.basePath != null) {
+                                append(config.basePath)
+                                append('/')
+                            }
+
+                            append(path)
+                        }
                     )
                 ).startAndTap()
             }

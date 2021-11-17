@@ -34,6 +34,9 @@ enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionAct
         val basePath: String? =
             config?.propertyOrNull("base_path")?.getString()
 
+        val resultingBaseUrl: String? =
+            config?.propertyOrNull("resulting_base_url")?.getString()
+
         private val featureSet by lazy {
             val endpoint = endpoint ?: return@lazy null
             val endpointTypeProcess = ProcessBuilder(
@@ -58,7 +61,8 @@ enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionAct
                     .firstOrNull { line -> line.trim().startsWith(endpoint) }
                     ?.substringAfterLast(':')
                     ?.trim(),
-                basePath = basePath
+                basePath = basePath,
+                resultingBaseUrl = resultingBaseUrl
             )
         }
 

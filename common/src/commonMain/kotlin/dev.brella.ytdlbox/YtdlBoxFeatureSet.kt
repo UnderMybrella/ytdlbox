@@ -20,6 +20,7 @@ sealed class YtdlBoxCompletionActionFeatureSet {
         val rcloneProcess: String,
         val endpoint: String,
         val endpointType: String?,
-        val basePath: String?
+        val basePath: String?,
+        val resultingBaseUrl: String?
     ): YtdlBoxCompletionActionFeatureSet()
 }

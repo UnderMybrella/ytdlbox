@@ -3,7 +3,7 @@ plugins {
 	id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-version = "1.2.0"
+version = "1.2.1"
 
 val ktor_version: String by rootProject
 val kotlinx_coroutines_version: String by rootProject
@@ -18,7 +18,7 @@ kotlin {
 				implementation("io.ktor:ktor-client-core:$ktor_version")
 				implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:$kotlinx_serialisation_version")
 
-				implementation(project(":common"))
+				api(project(":common"))
 			}
 		}
 
