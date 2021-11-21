@@ -134,7 +134,8 @@ sealed class WebsocketResponse {
         val taskID: String,
         val url: String,
         val commandLine: List<String>,
-        val logs: List<String>
+        val logs: List<String>,
+        val error: YtdlError? = null
     ) : WebsocketResponse()
 
     @Suppress("ArrayInDataClass")

@@ -9,7 +9,7 @@ plugins {
     id("com.bmuschko.docker-remote-api")
 }
 
-version = "1.4.2"
+version = "1.4.3"
 
 val ktor_version: String by rootProject
 val kotlinx_coroutines_version: String by rootProject

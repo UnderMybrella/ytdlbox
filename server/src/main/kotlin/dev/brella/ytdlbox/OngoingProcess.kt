@@ -37,13 +37,14 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                 val logFile = box.logFileForTask(ongoing.taskID)
                 val holdingTemplate = box.outputTemplateForTask(ongoing.taskID)
 
-                var didSucceed: Boolean? = null
+                var videoError: YtdlError? = null
 
                 logger.info("[${ongoing.taskID}] Download requested for {} ({})", url, options)
                 val start = TimeSource.Monotonic.markNow()
 
                 for (i in 0 until 5) {
-                    if (didSucceed != null) break
+                    if (videoError != null && videoError != YtdlError.Unknown) break
+                    videoError = null
 
                     val proxy = box.proxyListener?.borrowProxy()
 
@@ -91,14 +92,40 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                             ongoing.process.waitFor()
                         }
 
-                        didSucceed = ongoing.process.exitValue() <= 0
-                        if (didSucceed) break
-                        if (!ongoing.onFailure.fold(true) { acc, func -> acc && func(ongoing, logFile) }) break
+                        if (ongoing.process.exitValue() <= 0) break
+
+                        videoError = YtdlError.Unknown
+                        if (logFile.exists()) {
+                            logFile.useLines { seq ->
+                                seq.forEach { line ->
+                                    when {
+                                        line.contains("ERROR", true) -> {
+                                            when {
+                                                line.contains("This video is not available", true) -> {
+                                                    logger.warn("[{}] {} was marked as unavailable", ongoing.taskID, url)
+
+                                                    videoError = YtdlError.VideoNotAvailable
+                                                    return@useLines
+                                                }
+                                                line.contains("forcibly closed by the remote host", true) -> {
+                                                    logger.warn("[{}] forcibly closed connection to {}", ongoing.taskID, url)
+
+                                                    videoError = YtdlError.ConnectionForciblyClosed
+                                                    return@useLines
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!ongoing.onFailure.fold(true) { acc, func -> acc && func(ongoing, logFile, videoError) }) break
                     } catch (th: Throwable) {
                         th.printStackTrace()
                     } finally {
                         if (proxy != null) {
-                            var proxyError: Boolean = false
+                            var proxyError = false
 
                             if (logFile.exists()) {
                                 logFile.useLines { seq ->
@@ -107,11 +134,6 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                                             logger.warn("[${ongoing.taskID}] Warning $proxy due to $line")
 
                                             proxyError = true
-                                            return@useLines
-                                        } else if (line.contains("ERROR", true) && line.contains("This video is not available", true)) {
-                                            logger.warn("[{}] {} was marked as unavailable", ongoing.taskID, url)
-
-                                            didSucceed = false
                                             return@useLines
                                         }
                                     }
@@ -123,7 +145,7 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                     }
                 }
 
-                val wasSuccessful = didSucceed ?: false
+                val wasSuccessful = videoError == null
 
                 val end = start.elapsedNow()
                 logger.info("[${ongoing.taskID}] Download complete for {} in {}", url, end)
@@ -132,7 +154,7 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
 
                 try {
                     if (wasSuccessful && outputFile?.exists() == true) ongoing.onSuccess.forEach { it(ongoing, logFile, outputFile) }
-                    ongoing.onComplete.forEach { it(ongoing, logFile, outputFile) }
+                    ongoing.onComplete.forEach { it(ongoing, logFile, outputFile, videoError) }
 
                     delay(120_000)
 
@@ -157,18 +179,18 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                     .forEach { action -> process.onComplete.add(action, box) }
             }
 
-        inline fun MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit)>.add(action: CompletionAction<*>, bind: YtdlBox) =
-            add { process, logFile, outputFile -> action.onCompletion(bind, process, logFile, outputFile) }
+        inline fun MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File?, error: YtdlError?) -> Unit)>.add(action: CompletionAction<*>, bind: YtdlBox) =
+            add { process, logFile, outputFile, error -> action.onCompletion(bind, process, logFile, outputFile, error) }
     }
 
     /** Invoked on success */
     var onSuccess: MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File) -> Unit)> = ArrayList()
 
     /** Invoked on failure. Return true to try again */
-    var onFailure: MutableList<(suspend (process: OngoingProcess, logFile: File) -> Boolean)> = ArrayList()
+    var onFailure: MutableList<(suspend (process: OngoingProcess, logFile: File, error: YtdlError?) -> Boolean)> = ArrayList()
 
     /** Invoked on completion */
-    var onComplete: MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File?) -> Unit)> = ArrayList()
+    var onComplete: MutableList<(suspend (process: OngoingProcess, logFile: File, outputFile: File?, error: YtdlError?) -> Unit)> = ArrayList()
 
     var commandLine: List<String> = emptyList()
     lateinit var process: Process

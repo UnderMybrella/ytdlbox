@@ -6,7 +6,7 @@ sealed class CompletionAction<T> {
     data class UploadWithRClone(val path: String) : CompletionAction<ProcessOutput?>() {
         constructor(request: CompletionRequest.UploadWithRClone) : this(request.path)
 
-        override suspend fun onCompletion(box: YtdlBox, process: OngoingProcess, logFile: File, outputFile: File?): ProcessOutput? {
+        override suspend fun onCompletion(box: YtdlBox, process: OngoingProcess, logFile: File, outputFile: File?, error: YtdlError?): ProcessOutput? {
             val config = box.actionConfigs[CompletionActionType.RCLONE] as? CompletionActionType.UploadWithRClone ?: return null
 
             val rcloneProcess = config.rcloneProcess ?: return null
@@ -17,7 +17,6 @@ sealed class CompletionAction<T> {
                     listOf(
                         rcloneProcess,
                         "copyto",
-//                        "--progress",
                         outputFile.absolutePath,
                         buildString {
                             append(rcloneEndpoint)
@@ -37,7 +36,7 @@ sealed class CompletionAction<T> {
         }
     }
 
-    abstract suspend fun onCompletion(box: YtdlBox, process: OngoingProcess, logFile: File, outputFile: File?): T
+    abstract suspend fun onCompletion(box: YtdlBox, process: OngoingProcess, logFile: File, outputFile: File?, error: YtdlError?): T
 
     companion object {
         inline fun parseRequests(requests: List<CompletionRequest>): List<CompletionAction<*>> =

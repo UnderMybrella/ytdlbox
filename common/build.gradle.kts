@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.brella.ytdlbox"
-version = "1.2.1"
+version = "1.2.2"
 
 val kotlinx_serialisation_version: String by rootProject
 val ktor_version: String by rootProject
