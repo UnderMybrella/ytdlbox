@@ -30,7 +30,7 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
         val logger = LoggerFactory.getLogger("OngoingProcess")
 
         @OptIn(ExperimentalTime::class)
-        inline fun beginDownloadFor(box: YtdlBox, url: String, options: List<String>, completionRequests: List<CompletionRequest>): OngoingProcess =
+        inline fun beginDownloadFor(box: YtdlBox, url: String, options: List<String>, completionRequests: List<CompletionRequest>, key: String): OngoingProcess =
             box.OngoingProcess(box.generateTaskID(), url, options) { ongoing ->
                 ongoing.status = ProcessStatus.INITIALISING
 
@@ -163,7 +163,7 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
                     delay(60_000)
 
                     box.ongoingTasks.remove(ongoing.taskID)
-                    box.incomingUrls.remove(ongoing.url)
+                    box.incomingUrls.remove(key)
                 } finally {
                     logFile.delete()
                     outputFile?.delete()
@@ -173,7 +173,7 @@ class OngoingProcess(val job: Job, val taskID: String, val url: String, val para
 //            outputFileForTask(ongoing.taskID)?.delete()
             }.also { process ->
                 box.ongoingTasks[process.taskID] = process
-                box.incomingUrls[process.url] = process.taskID
+                box.incomingUrls[key] = process.taskID
 
                 CompletionAction.parseRequests(completionRequests)
                     .forEach { action -> process.onComplete.add(action, box) }

@@ -281,11 +281,12 @@ class YtdlBox(val application: Application) : CoroutineScope {
             }
 
             post("/download") { request: DownloadRequest ->
-                val existingTask = incomingUrls[request.url]?.let(ongoingTasks::get)
+                val key = request.key()
+                val existingTask = incomingUrls[key]?.let(ongoingTasks::get)
                 if (existingTask != null) {
                     return@post call.respond(DownloadResponse(existingTask.taskID, false, existingTask.url, existingTask.parameters))
                 } else {
-                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(OngoingProcess.beginDownloadFor(this@YtdlBox, request.url, request.args, request.completionActions).taskID, true, request.url, request.args))
+                    return@post call.respond(HttpStatusCode.Created, DownloadResponse(OngoingProcess.beginDownloadFor(this@YtdlBox, request.url, request.args, request.completionActions, key).taskID, true, request.url, request.args))
                 }
             }
             webSocket("/connect") {

@@ -12,7 +12,9 @@ enum class ProcessStatus(val isComplete: Boolean) {
 }
 
 @Serializable
-data class DownloadRequest(val url: String, val args: List<String> = emptyList(), val completionActions: List<CompletionRequest> = emptyList())
+data class DownloadRequest(val url: String, val args: List<String> = emptyList(), val completionActions: List<CompletionRequest> = emptyList()) {
+    public inline fun key(): String = "$url (${args.joinToString()})"
+}
 
 @Serializable
 data class DownloadResponse(val id: String, val created: Boolean, val url: String, val args: List<String>)

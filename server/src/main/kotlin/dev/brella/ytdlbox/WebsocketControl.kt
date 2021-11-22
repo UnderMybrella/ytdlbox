@@ -75,7 +75,8 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
                     send(WebsocketResponse.NoProxyListener(request.nonce))
 
             is WebsocketRequest.Download -> {
-                val existingTask = box.incomingUrls[request.request.url]?.let(box.ongoingTasks::get)
+                val key = request.request.key()
+                val existingTask = box.incomingUrls[key]?.let(box.ongoingTasks::get)
                 val nonce = request.nonce
                 val listenFor = request.listenFor
 
@@ -88,7 +89,7 @@ class WebsocketControl(val box: YtdlBox, val session: WebSocketServerSession, va
                         send(WebsocketResponse.Downloading(nonce, existingTask.taskID, false, existingTask.url, existingTask.parameters))
                     }
                 } else {
-                    val process = OngoingProcess.beginDownloadFor(box, request.request.url, request.request.args, request.request.completionActions)
+                    val process = OngoingProcess.beginDownloadFor(box, request.request.url, request.request.args, request.request.completionActions, key)
                     if (listenFor != ListenCondition.DO_NOT_LISTEN) process.onComplete.add { completed, logFile, outputFile, error -> onCompletion(nonce, completed, logFile, outputFile, error, listenFor) }
 
                     send(WebsocketResponse.Downloading(nonce, process.taskID, true, process.url, process.parameters))
