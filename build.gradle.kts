@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm") version "1.5.20" apply false
-    kotlin("multiplatform") version "1.5.20" apply false
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.5.20" apply false
+    kotlin("jvm") version "1.7.10" apply false
+    kotlin("multiplatform") version "1.7.10" apply false
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.7.10" apply false
     id("com.github.johnrengelman.shadow") version "7.0.0" apply false
     id("com.bmuschko.docker-remote-api") version "7.0.0" apply false
 }

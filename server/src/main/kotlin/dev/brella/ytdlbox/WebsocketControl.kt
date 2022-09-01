@@ -1,8 +1,8 @@
 package dev.brella.ytdlbox
 
-import io.ktor.features.*
 import io.ktor.http.*
-import io.ktor.http.cio.websocket.*
+import io.ktor.server.plugins.*
+import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.catch

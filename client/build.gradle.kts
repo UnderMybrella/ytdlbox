@@ -3,7 +3,7 @@ plugins {
 	id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-version = "1.2.3"
+version = "1.2.4"
 
 val ktor_version: String by rootProject
 val kotlinx_coroutines_version: String by rootProject

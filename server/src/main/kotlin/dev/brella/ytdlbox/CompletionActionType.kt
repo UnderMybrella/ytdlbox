@@ -1,6 +1,5 @@
 package dev.brella.ytdlbox
 
-import io.ktor.config.*
 import kotlinx.coroutines.Dispatchers
 
 enum class CompletionActionType(val buildConfig: (box: YtdlBox) -> CompletionActionConfig) {

@@ -2,14 +2,17 @@ package dev.brella.ytdlbox
 
 import inet.ipaddr.IPAddress
 import inet.ipaddr.IPAddressString
-import io.ktor.application.*
-import io.ktor.features.*
 import io.ktor.http.*
-import io.ktor.http.cio.websocket.*
-import io.ktor.request.*
-import io.ktor.response.*
-import io.ktor.routing.*
 import io.ktor.serialization.*
+import io.ktor.serialization.kotlinx.*
+import io.ktor.server.application.*
+import io.ktor.server.plugins.*
+import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.server.util.*
+import io.ktor.server.websocket.*
 import io.ktor.util.*
 import io.ktor.util.pipeline.*
 import io.ktor.websocket.*
@@ -292,10 +295,7 @@ class YtdlBox(val application: Application) : CoroutineScope {
             webSocket("/connect") {
                 val acceptHeaderContent = call.request.header(HttpHeaders.Accept)
                 val acceptHeader = try {
-                    parseHeaderValue(acceptHeaderContent)
-                        .map { ContentTypeWithQuality(ContentType.parse(it.value), it.quality) }
-                        .distinct()
-                        .sortedByQuality()
+                    parseAndSortContentTypeHeader(acceptHeaderContent)
                 } catch (parseFailure: BadContentTypeFormatException) {
                     throw BadRequestException(
                         "Illegal Accept header format: $acceptHeaderContent",
@@ -342,19 +342,20 @@ class YtdlBox(val application: Application) : CoroutineScope {
         }
 
     init {
-        application.install(CallLogging) {
-            level = Level.INFO
-            filter { call -> call.request.path().startsWith("/") }
-        }
+//        application.install(CallLogging) {
+//            level = Level.INFO
+//            filter { call -> call.request.path().startsWith("/") }
+//        }
 //        application.intercept(ApplicationCallPipeline.Setup) {
 //            println(call.request.headers.flattenEntries().joinToString("\n") { (k, v) -> "$k: $v" })
 //        }
 
         application.install(ContentNegotiation) {
-            json()
+            serialization(ContentType.Application.Json, Json.Default)
             serialization(ContentType.Application.Cbor, Cbor.Default)
             serialization(ContentType.Application.ProtoBuf, ProtoBuf.Default)
         }
+
         application.install(WebSockets) {
             pingPeriod = Duration.ofSeconds(15)
             timeout = Duration.ofSeconds(15)

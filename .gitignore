@@ -8,3 +8,4 @@ application.conf
 holding
 logs
 build
+client/src/jvmMain/kotlin/dev/brella/ytdlbox/client/Main.kt

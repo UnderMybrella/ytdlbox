@@ -9,7 +9,7 @@ plugins {
     id("com.bmuschko.docker-remote-api")
 }
 
-version = "1.4.4"
+version = "1.4.5"
 
 val ktor_version: String by rootProject
 val kotlinx_coroutines_version: String by rootProject
@@ -25,22 +25,24 @@ dependencies {
     implementation(project(":common"))
 
     implementation("io.ktor:ktor-server-core:$ktor_version")
-    implementation("io.ktor:ktor-websockets:$ktor_version")
+    implementation("io.ktor:ktor-server-websockets:$ktor_version")
 
     implementation("io.ktor:ktor-server-netty:$ktor_version")
-    implementation("io.ktor:ktor-serialization:$ktor_version")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktor_version")
+    implementation("io.ktor:ktor-serialization-kotlinx:$ktor_version")
 
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinx_serialisation_version")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:$kotlinx_serialisation_version")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-cbor:$kotlinx_serialisation_version")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinx_coroutines_version")
-    implementation("com.github.seancfoley:ipaddress:5.3.3")
+    implementation("com.github.seancfoley:ipaddress:5.3.4")
 
-    implementation("org.springframework.security:spring-security-crypto:5.5.1")
+    implementation("org.springframework.security:spring-security-crypto:5.7.3")
     implementation("commons-logging:commons-logging:1.2")
-    implementation("org.bouncycastle:bcpkix-jdk15on:1.69")
+    implementation("org.bouncycastle:bcpkix-jdk15on:1.70")
 
-    implementation("ch.qos.logback:logback-classic:1.3.0-alpha10")
+    implementation("ch.qos.logback:logback-classic:1.3.0-alpha11")
 
     testImplementation(kotlin("test"))
 }

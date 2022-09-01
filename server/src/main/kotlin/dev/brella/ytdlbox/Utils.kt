@@ -1,14 +1,15 @@
 package dev.brella.ytdlbox
 
-import io.ktor.application.*
 import io.ktor.http.*
 import io.ktor.http.content.*
-import io.ktor.response.*
-import io.ktor.routing.*
+import io.ktor.server.application.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.util.*
 import io.ktor.util.pipeline.*
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
-import io.ktor.routing.get as getSuper
+import io.ktor.server.routing.get as getSuper
 
 
 /**
@@ -25,9 +26,10 @@ public suspend fun ApplicationCall.respondJsonObject(
     respond(message)
 }
 
-@ContextDsl
+@KtorDsl
 public inline fun Route.get(path: String, noinline body: PipelineInterceptor<Unit, ApplicationCall>): Route =
     getSuper(path, body)
-@ContextDsl
+
+@KtorDsl
 public inline fun Route.get(vararg paths: String, noinline body: PipelineInterceptor<Unit, ApplicationCall>): List<Route> =
     paths.map { getSuper(it, body) }

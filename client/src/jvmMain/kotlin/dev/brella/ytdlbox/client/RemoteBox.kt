@@ -9,11 +9,11 @@ import dev.brella.ytdlbox.WebsocketRequest
 import dev.brella.ytdlbox.WebsocketResponse
 import dev.brella.ytdlbox.YtdlBoxFeatureSet
 import io.ktor.client.*
-import io.ktor.client.features.websocket.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.http.cio.*
-import io.ktor.http.cio.websocket.*
+import io.ktor.websocket.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.filterIsInstance
@@ -82,21 +82,56 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
     suspend inline fun <reified T : WebsocketResponse, reified R : WebsocketResponse, U>
             sendAndWaitWithError(request: WebsocketRequest, buildResponse: (T?, R?) -> U): U {
         send(request)
-        val response = incomingFlow.first { response -> response.nonce == request.nonce && (response is T || response is R) }
+        val response =
+            incomingFlow.first { response -> response.nonce == request.nonce && (response is T || response is R) }
 
         return buildResponse(response as? T, response as? R)
     }
 
-    suspend fun downloadWithData(url: String, args: List<String>, completionRequests: List<CompletionRequest> = emptyList()): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
-        sendAndWaitWithError(WebsocketRequest.Download(nonce(), DownloadRequest(url, args, completionRequests), ListenCondition.LISTEN_WITH_DATA))
+    suspend fun downloadWithData(
+        url: String,
+        args: List<String>,
+        completionRequests: List<CompletionRequest> = emptyList(),
+    ): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
+        sendAndWaitWithError(
+            WebsocketRequest.Download(
+                nonce(),
+                DownloadRequest(url, args, completionRequests),
+                ListenCondition.LISTEN_WITH_DATA
+            )
+        )
 
-    suspend fun downloadWithoutData(url: String, args: List<String>, completionRequests: List<CompletionRequest> = emptyList()): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
-        sendAndWaitWithError(WebsocketRequest.Download(nonce(), DownloadRequest(url, args, completionRequests), ListenCondition.LISTEN_NO_DATA))
+    suspend fun downloadWithoutData(
+        url: String,
+        args: List<String>,
+        completionRequests: List<CompletionRequest> = emptyList(),
+    ): Pair<WebsocketResponse.DownloadSuccess?, WebsocketResponse.DownloadFailure?> =
+        sendAndWaitWithError(
+            WebsocketRequest.Download(
+                nonce(),
+                DownloadRequest(url, args, completionRequests),
+                ListenCondition.LISTEN_NO_DATA
+            )
+        )
 
-    suspend fun beginDownload(url: String, args: List<String>, completionRequests: List<CompletionRequest> = emptyList()): WebsocketResponse.Downloading =
-        sendAndWait(WebsocketRequest.Download(nonce(), DownloadRequest(url, args, completionRequests), ListenCondition.DO_NOT_LISTEN))
+    suspend fun beginDownload(
+        url: String,
+        args: List<String>,
+        completionRequests: List<CompletionRequest> = emptyList(),
+    ): WebsocketResponse.Downloading =
+        sendAndWait(
+            WebsocketRequest.Download(
+                nonce(),
+                DownloadRequest(url, args, completionRequests),
+                ListenCondition.DO_NOT_LISTEN
+            )
+        )
 
-    suspend fun addProxyServer(address: String, limit: Int, errorLimit: Int = 3): Pair<WebsocketResponse.AddedProxyServer?, WebsocketResponse.NoProxyListener?> =
+    suspend fun addProxyServer(
+        address: String,
+        limit: Int,
+        errorLimit: Int = 3,
+    ): Pair<WebsocketResponse.AddedProxyServer?, WebsocketResponse.NoProxyListener?> =
         sendAndWaitWithError(WebsocketRequest.AddProxyServer(nonce(), DownloadProxy(address, limit, errorLimit)))
 
     suspend fun removeProxyServer(address: String): Pair<WebsocketResponse.RemovedProxyServer?, WebsocketResponse.NoProxyListener?> =
@@ -108,7 +143,12 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
 
     suspend fun getTaskInfo(taskID: String): Pair<TaskInfo?, WebsocketResponse.NoTaskWithID?> =
         sendAndWaitWithError(WebsocketRequest.GetTaskInfo(nonce(), taskID))
-        { taskInfo: WebsocketResponse.TaskInfo?, noTaskWithID: WebsocketResponse.NoTaskWithID? -> Pair(taskInfo?.taskInfo, noTaskWithID) }
+        { taskInfo: WebsocketResponse.TaskInfo?, noTaskWithID: WebsocketResponse.NoTaskWithID? ->
+            Pair(
+                taskInfo?.taskInfo,
+                noTaskWithID
+            )
+        }
 
     suspend fun getTaskLogs(taskID: String): List<String> =
         sendAndWait<WebsocketResponse.TaskLogs>(WebsocketRequest.GetTaskLogs(nonce(), taskID))
@@ -118,7 +158,12 @@ class RemoteBox(val connection: WebSocketSession, val format: SerialFormat) : We
         sendAndWaitWithError(WebsocketRequest.GetTaskDownload(nonce(), taskID))
 }
 
-suspend fun HttpClient.remoteBox(urlString: String, auth: String, format: Pair<ContentType, SerialFormat>, builder: HttpRequestBuilder.() -> Unit = {}): RemoteBox =
+suspend fun HttpClient.remoteBox(
+    urlString: String,
+    auth: String,
+    format: Pair<ContentType, SerialFormat>,
+    builder: HttpRequestBuilder.() -> Unit = {},
+): RemoteBox =
     RemoteBox(webSocketSession {
         url(urlString)
         builder()
