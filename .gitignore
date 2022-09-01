@@ -3,7 +3,7 @@
 *.iml
 out
 gen
-application.conf
+/application.conf
 
 holding
 logs
